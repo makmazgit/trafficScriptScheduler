@@ -23,6 +23,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Download previous database
+      continue-on-error: true  # Continue if this is the first run and no previous artifact exists
+      uses: actions/download-artifact@v4
+      with:
+        name: route-data
+        path: previous-data
+        
+    - name: Restore previous database
+      run: |
+        mkdir -p database backups
+        if [ -f "previous-data/database/routes.db" ]; then
+          cp previous-data/database/routes.db database/routes.db
+          echo "Restored previous database"
+        else
+          echo "No previous database found, will create new one"
+        fi
+    
     - name: Wait random delay
       run: |
         sleep $(( RANDOM % 30 ))  # Random delay 0-30 seconds to avoid exact timing conflicts
@@ -39,7 +56,7 @@ jobs:
         
     - name: Create necessary directories and initialize database
       run: |
-        mkdir -p logs database backups
+        mkdir -p logs
         python -c "
         from src.database.models import Base, engine
         Base.metadata.create_all(engine)
@@ -82,9 +99,13 @@ jobs:
                                 from_coords=route['from_coords'],
                                 to_coords=route['to_coords']
                             )
+                            db.commit()  # Commit after each successful save
                             print(f'Successfully saved route data for {route[\"name\"]}')
                         else:
                             print(f'Failed to get route info for {route[\"name\"]}')
+                except Exception as e:
+                    db.rollback()
+                    raise e
                 finally:
                     db.close()
 
@@ -106,6 +127,16 @@ jobs:
             df.to_csv(csv_file, index=False)
             conn.close()
             print(f'CSV export created at {csv_file}')
+            
+            # Print current database stats
+            conn = sqlite3.connect('database/routes.db')
+            cursor = conn.cursor()
+            count = cursor.execute('SELECT COUNT(*) FROM route_info').fetchone()[0]
+            latest = cursor.execute('SELECT MAX(timestamp) FROM route_info').fetchone()[0]
+            conn.close()
+            print(f'Current database status:')
+            print(f'Total records: {count}')
+            print(f'Latest record timestamp: {latest}')
             
             print('All operations completed successfully')
             sys.exit(0)
