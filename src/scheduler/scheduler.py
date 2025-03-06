@@ -21,8 +21,12 @@ def collect_route_data():
     """Collect route data for all configured routes"""
     client = TomTomClient()
     db = SessionLocal()
+    success_count = 0
+    total_routes = len(ROUTES)
     
     try:
+        logger.info(f"Starting data collection for {total_routes} routes")
+        
         for route in ROUTES:
             logger.info(f"Collecting data for route: {route['name']}")
             
@@ -32,19 +36,28 @@ def collect_route_data():
             )
             
             if route_info:
-                save_route_info(
-                    db=db,
-                    route_data=route_info,
-                    from_coords=route["from_coords"],
-                    to_coords=route["to_coords"]
-                )
-                logger.info(f"Successfully saved route data for {route['name']}")
+                try:
+                    save_route_info(
+                        db=db,
+                        route_data=route_info,
+                        from_coords=route["from_coords"],
+                        to_coords=route["to_coords"]
+                    )
+                    db.commit()
+                    success_count += 1
+                    logger.info(f"Successfully saved route data for {route['name']}")
+                except Exception as e:
+                    logger.error(f"Failed to save route data for {route['name']}: {str(e)}")
+                    db.rollback()
             else:
                 logger.error(f"Failed to collect data for route {route['name']}")
+        
+        logger.info(f"Data collection completed. Success: {success_count}/{total_routes} routes")
     
     except Exception as e:
         logger.error(f"Error collecting route data: {str(e)}")
     finally:
+        db.commit()
         db.close()
 
 def get_next_run_time():

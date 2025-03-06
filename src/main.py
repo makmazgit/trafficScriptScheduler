@@ -11,10 +11,14 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE),
+        logging.FileHandler(LOG_FILE, mode='a'),
         logging.StreamHandler()
     ]
 )
+
+# Add a startup marker to easily identify new runs
+logging.info("=" * 80)
+logging.info("Starting new data collection run")
 
 if __name__ == "__main__":
     try:
