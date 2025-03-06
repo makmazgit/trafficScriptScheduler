@@ -1,0 +1,68 @@
+name: Traffic Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Run every 5 minutes
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  collect-traffic-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create necessary directories
+      run: |
+        mkdir -p logs database
+        
+    - name: Run traffic data collection
+      env:
+        TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+      run: |
+        python -c "
+        from src.api.tomtom_client import TomTomClient
+        from src.database.models import SessionLocal
+        from src.database.operations import save_route_info
+        from src.config import ROUTES
+
+        def collect_data():
+            client = TomTomClient()
+            db = SessionLocal()
+            try:
+                for route in ROUTES:
+                    print(f'Collecting data for route: {route[\"name\"]}')
+                    route_info = client.get_route_info(
+                        from_coords=route['from_coords'],
+                        to_coords=route['to_coords']
+                    )
+                    if route_info:
+                        save_route_info(
+                            db=db,
+                            route_data=route_info,
+                            from_coords=route['from_coords'],
+                            to_coords=route['to_coords']
+                        )
+                        print(f'Successfully saved route data for {route[\"name\"]}')
+            finally:
+                db.close()
+
+        collect_data()
+        "
+        
+    - name: Upload database as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: route-data
+        path: database/routes.db
+        retention-days: 7  # Keep data for 7 days 
