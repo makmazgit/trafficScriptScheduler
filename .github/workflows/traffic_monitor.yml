@@ -2,7 +2,7 @@ name: Traffic Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Backup trigger every 5 minutes
+    - cron: '*/5 * * * *'  # Run every 5 minutes
   workflow_dispatch:  # Manual trigger
     inputs:
       debug_enabled:
@@ -10,12 +10,6 @@ on:
         description: 'Run the workflow with debug logging'
         required: false
         default: false
-  workflow_run:
-    workflows: ["Traffic Monitor"]
-    types:
-      - completed
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -24,10 +18,7 @@ permissions:
 jobs:
   collect-traffic-data:
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.run_attempt == 1)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     
     steps:
     - uses: actions/checkout@v4
