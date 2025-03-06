@@ -3,7 +3,17 @@ name: Traffic Monitor
 on:
   schedule:
     - cron: '*/5 * * * *'  # Run every 5 minutes
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the workflow with debug logging'
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   collect-traffic-data:
@@ -37,6 +47,7 @@ jobs:
       env:
         TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
       run: |
+        echo "Starting data collection at $(date)"
         python -c "
         from src.api.tomtom_client import TomTomClient
         from src.database.models import SessionLocal
@@ -83,6 +94,7 @@ jobs:
         df.to_csv(csv_file, index=False)
         conn.close()
         "
+        echo "Completed data collection at $(date)"
         
     - name: Upload current database
       uses: actions/upload-artifact@v4
