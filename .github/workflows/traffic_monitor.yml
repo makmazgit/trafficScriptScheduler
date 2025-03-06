@@ -28,20 +28,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Create necessary directories
+    - name: Create necessary directories and initialize database
       run: |
         mkdir -p logs database backups
-        touch database/routes.db  # Create empty database file if it doesn't exist
-        
-    - name: Download previous database
-      continue-on-error: true  # Continue if no previous artifact exists
-      uses: actions/download-artifact@v4
-      with:
-        name: route-data
-        path: database
-        
-    - name: Initialize database if needed
-      run: |
         python -c "
         from src.database.models import Base, engine
         Base.metadata.create_all(engine)
@@ -54,6 +43,8 @@ jobs:
       run: |
         echo "Starting data collection at $(date)"
         python -c "
+        import sys
+        import traceback
         from src.api.tomtom_client import TomTomClient
         from src.database.models import SessionLocal
         from src.database.operations import save_route_info
@@ -63,59 +54,67 @@ jobs:
         import pandas as pd
         import sqlite3
         import os
-        
-        def collect_data():
-            client = TomTomClient()
-            db = SessionLocal()
-            try:
-                for route in ROUTES:
-                    print(f'Collecting data for route: {route[\"name\"]}')
-                    route_info = client.get_route_info(
-                        from_coords=route['from_coords'],
-                        to_coords=route['to_coords']
-                    )
-                    if route_info:
-                        save_route_info(
-                            db=db,
-                            route_data=route_info,
+
+        try:
+            def collect_data():
+                client = TomTomClient()
+                db = SessionLocal()
+                try:
+                    for route in ROUTES:
+                        print(f'Collecting data for route: {route[\"name\"]}')
+                        route_info = client.get_route_info(
                             from_coords=route['from_coords'],
                             to_coords=route['to_coords']
                         )
-                        print(f'Successfully saved route data for {route[\"name\"]}')
-            finally:
-                db.close()
+                        if route_info:
+                            save_route_info(
+                                db=db,
+                                route_data=route_info,
+                                from_coords=route['from_coords'],
+                                to_coords=route['to_coords']
+                            )
+                            print(f'Successfully saved route data for {route[\"name\"]}')
+                        else:
+                            print(f'Failed to get route info for {route[\"name\"]}')
+                finally:
+                    db.close()
 
-        # Collect new data
-        collect_data()
-        
-        # Create timestamped backup
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-        backup_db = f'backups/routes_{timestamp}.db'
-        shutil.copy2('database/routes.db', backup_db)
-        
-        # Export to CSV
-        conn = sqlite3.connect('database/routes.db')
-        df = pd.read_sql_query('SELECT * FROM route_info', conn)
-        csv_file = f'backups/routes_{timestamp}.csv'
-        df.to_csv(csv_file, index=False)
-        conn.close()
-        
-        print('Data collection and backup completed successfully')
+            # Collect new data
+            print('Starting data collection...')
+            collect_data()
+            print('Data collection completed')
+            
+            # Create timestamped backup
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+            backup_db = f'backups/routes_{timestamp}.db'
+            shutil.copy2('database/routes.db', backup_db)
+            print(f'Database backup created at {backup_db}')
+            
+            # Export to CSV
+            conn = sqlite3.connect('database/routes.db')
+            df = pd.read_sql_query('SELECT * FROM route_info', conn)
+            csv_file = f'backups/routes_{timestamp}.csv'
+            df.to_csv(csv_file, index=False)
+            conn.close()
+            print(f'CSV export created at {csv_file}')
+            
+            print('All operations completed successfully')
+            sys.exit(0)
+        except Exception as e:
+            print('Error occurred:')
+            print(str(e))
+            print('Traceback:')
+            traceback.print_exc()
+            sys.exit(1)
         "
         echo "Completed data collection at $(date)"
         
-    - name: Upload current database
+    - name: Upload database
+      if: always()  # Try to upload even if previous step failed
       uses: actions/upload-artifact@v4
       with:
         name: route-data
-        path: database/routes.db
-        retention-days: 7
-        
-    - name: Upload backup files
-      uses: actions/upload-artifact@v4
-      with:
-        name: route-data-backup-${{ github.run_number }}
         path: |
-          backups/routes_*.db
-          backups/routes_*.csv
+          database/routes.db
+          backups/*
         retention-days: 7 
