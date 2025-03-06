@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -11,7 +11,7 @@ class RouteInfo(Base):
     __tablename__ = 'route_info'
 
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, nullable=False)
+    timestamp = Column(BigInteger, nullable=False)  # Unix timestamp
     date = Column(String, nullable=False)
     day_of_week = Column(String, nullable=False)
     from_coords = Column(String, nullable=False)

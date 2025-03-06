@@ -68,7 +68,7 @@ class TomTomClient:
         dubai_time = utc_time.astimezone(ZoneInfo("Asia/Dubai"))
         
         return {
-            "timestamp": dubai_time,
+            "timestamp": int(dubai_time.timestamp()),  # Convert to Unix timestamp (integer)
             "date": dubai_time.strftime("%Y-%m-%d"),
             "day_of_week": dubai_time.strftime("%A"),
             "distance_km": route_summary["lengthInMeters"] / 1000.0,

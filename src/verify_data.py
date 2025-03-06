@@ -19,10 +19,10 @@ def verify_data():
     print("-" * 80)
     
     for _, row in df.iterrows():
-        # Parse the timestamp (already in Dubai time)
-        timestamp = pd.to_datetime(row['timestamp'])
+        # Convert Unix timestamp to Dubai time
+        dt = datetime.fromtimestamp(row['timestamp'], tz=ZoneInfo("Asia/Dubai"))
         
-        print(f"Time (Dubai): {timestamp}")
+        print(f"Time (Dubai): {dt.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         print(f"Route: {row['from_coords']} → {row['to_coords']}")
         print(f"Travel Time: {row['travel_time_minutes']} minutes")
         print(f"Distance: {row['distance_km']:.2f} km")
@@ -31,7 +31,11 @@ def verify_data():
     # Print some statistics
     print("\nSummary Statistics:")
     print(f"Total records: {len(pd.read_sql_query('SELECT * FROM route_info', conn))}")
-    print(f"Date range: {pd.to_datetime(df['timestamp'].min())} to {pd.to_datetime(df['timestamp'].max())}")
+    
+    # Convert timestamps for date range
+    earliest = datetime.fromtimestamp(df['timestamp'].min(), tz=ZoneInfo("Asia/Dubai"))
+    latest = datetime.fromtimestamp(df['timestamp'].max(), tz=ZoneInfo("Asia/Dubai"))
+    print(f"Date range: {earliest.strftime('%Y-%m-%d %H:%M %Z')} to {latest.strftime('%Y-%m-%d %H:%M %Z')}")
     print(f"Average travel time: {df['travel_time_minutes'].mean():.1f} minutes")
     
     conn.close()
