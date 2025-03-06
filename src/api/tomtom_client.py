@@ -3,6 +3,7 @@ import time
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
+from zoneinfo import ZoneInfo
 
 from src.config import (
     TOMTOM_API_KEY,
@@ -61,14 +62,15 @@ class TomTomClient:
         """Process the API response and extract relevant information"""
         route_summary = data["routes"][0]["summary"]
         
-        # Convert departure time
+        # Convert departure time to Dubai time
         departure_str = route_summary["departureTime"]
-        dt_obj = datetime.fromisoformat(departure_str.replace("Z", "+00:00"))
+        utc_time = datetime.fromisoformat(departure_str.replace("Z", "+00:00"))
+        dubai_time = utc_time.astimezone(ZoneInfo("Asia/Dubai"))
         
         return {
-            "timestamp": dt_obj.timestamp(),
-            "date": dt_obj.strftime("%Y-%m-%d"),
-            "day_of_week": dt_obj.strftime("%A"),
+            "timestamp": dubai_time,
+            "date": dubai_time.strftime("%Y-%m-%d"),
+            "day_of_week": dubai_time.strftime("%A"),
             "distance_km": route_summary["lengthInMeters"] / 1000.0,
             "travel_time_seconds": route_summary["travelTimeInSeconds"],
             "travel_time_minutes": round(route_summary["travelTimeInSeconds"] / 60)
