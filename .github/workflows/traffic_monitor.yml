@@ -11,10 +11,6 @@ on:
         required: false
         default: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   collect-traffic-data:
     runs-on: ubuntu-latest
@@ -35,6 +31,7 @@ jobs:
     - name: Create necessary directories
       run: |
         mkdir -p logs database backups
+        touch database/routes.db  # Create empty database file if it doesn't exist
         
     - name: Download previous database
       continue-on-error: true  # Continue if no previous artifact exists
@@ -42,6 +39,14 @@ jobs:
       with:
         name: route-data
         path: database
+        
+    - name: Initialize database if needed
+      run: |
+        python -c "
+        from src.database.models import Base, engine
+        Base.metadata.create_all(engine)
+        print('Database initialized successfully')
+        "
         
     - name: Run traffic data collection
       env:
@@ -57,6 +62,7 @@ jobs:
         from datetime import datetime
         import pandas as pd
         import sqlite3
+        import os
         
         def collect_data():
             client = TomTomClient()
@@ -93,6 +99,8 @@ jobs:
         csv_file = f'backups/routes_{timestamp}.csv'
         df.to_csv(csv_file, index=False)
         conn.close()
+        
+        print('Data collection and backup completed successfully')
         "
         echo "Completed data collection at $(date)"
         
