@@ -24,7 +24,14 @@ jobs:
         
     - name: Create necessary directories
       run: |
-        mkdir -p logs database
+        mkdir -p logs database backups
+        
+    - name: Download previous database
+      continue-on-error: true  # Continue if no previous artifact exists
+      uses: actions/download-artifact@v4
+      with:
+        name: route-data
+        path: database
         
     - name: Run traffic data collection
       env:
@@ -35,7 +42,11 @@ jobs:
         from src.database.models import SessionLocal
         from src.database.operations import save_route_info
         from src.config import ROUTES
-
+        import shutil
+        from datetime import datetime
+        import pandas as pd
+        import sqlite3
+        
         def collect_data():
             client = TomTomClient()
             db = SessionLocal()
@@ -57,12 +68,34 @@ jobs:
             finally:
                 db.close()
 
+        # Collect new data
         collect_data()
+        
+        # Create timestamped backup
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+        backup_db = f'backups/routes_{timestamp}.db'
+        shutil.copy2('database/routes.db', backup_db)
+        
+        # Export to CSV
+        conn = sqlite3.connect('database/routes.db')
+        df = pd.read_sql_query('SELECT * FROM route_info', conn)
+        csv_file = f'backups/routes_{timestamp}.csv'
+        df.to_csv(csv_file, index=False)
+        conn.close()
         "
         
-    - name: Upload database as artifact
+    - name: Upload current database
       uses: actions/upload-artifact@v4
       with:
         name: route-data
         path: database/routes.db
-        retention-days: 7  # Keep data for 7 days 
+        retention-days: 7
+        
+    - name: Upload backup files
+      uses: actions/upload-artifact@v4
+      with:
+        name: route-data-backup-${{ github.run_number }}
+        path: |
+          backups/routes_*.db
+          backups/routes_*.csv
+        retention-days: 7 
