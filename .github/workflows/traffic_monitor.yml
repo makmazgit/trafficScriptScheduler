@@ -23,26 +23,36 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Set up directories
+      run: |
+        mkdir -p database backups logs
+        touch database/routes.db  # Ensure database file exists
+    
     - name: Download previous database
-      continue-on-error: true  # Continue if this is the first run and no previous artifact exists
+      id: download-artifact
+      continue-on-error: true  # Continue if no previous artifact exists
       uses: actions/download-artifact@v4
       with:
         name: route-data
         path: previous-data
         
-    - name: Restore previous database
+    - name: Restore or initialize database
       run: |
-        mkdir -p database backups
         if [ -f "previous-data/database/routes.db" ]; then
           cp previous-data/database/routes.db database/routes.db
           echo "Restored previous database"
+          # Verify database is valid
+          if sqlite3 database/routes.db ".tables" &> /dev/null; then
+            echo "Database verification successful"
+          else
+            echo "Database corrupt or invalid, will create new one"
+            rm database/routes.db
+            touch database/routes.db
+          fi
         else
           echo "No previous database found, will create new one"
+          touch database/routes.db
         fi
-    
-    - name: Wait random delay
-      run: |
-        sleep $(( RANDOM % 30 ))  # Random delay 0-30 seconds to avoid exact timing conflicts
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -54,13 +64,20 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Create necessary directories and initialize database
+    - name: Initialize database schema
       run: |
-        mkdir -p logs
         python -c "
         from src.database.models import Base, engine
         Base.metadata.create_all(engine)
-        print('Database initialized successfully')
+        print('Database schema initialized successfully')
+        
+        # Verify table exists and print current record count
+        import sqlite3
+        conn = sqlite3.connect('database/routes.db')
+        cursor = conn.cursor()
+        count = cursor.execute('SELECT COUNT(*) FROM route_info').fetchone()[0]
+        print(f'Current record count: {count}')
+        conn.close()
         "
         
     - name: Run traffic data collection
@@ -85,6 +102,7 @@ jobs:
             def collect_data():
                 client = TomTomClient()
                 db = SessionLocal()
+                success_count = 0
                 try:
                     for route in ROUTES:
                         print(f'Collecting data for route: {route[\"name\"]}')
@@ -100,6 +118,7 @@ jobs:
                                 to_coords=route['to_coords']
                             )
                             db.commit()  # Commit after each successful save
+                            success_count += 1
                             print(f'Successfully saved route data for {route[\"name\"]}')
                         else:
                             print(f'Failed to get route info for {route[\"name\"]}')
@@ -108,11 +127,12 @@ jobs:
                     raise e
                 finally:
                     db.close()
+                return success_count
 
             # Collect new data
             print('Starting data collection...')
-            collect_data()
-            print('Data collection completed')
+            records_added = collect_data()
+            print(f'Data collection completed. Added {records_added} new records')
             
             # Create timestamped backup
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
@@ -157,4 +177,4 @@ jobs:
         path: |
           database/routes.db
           backups/*
-        retention-days: 7 
+        retention-days: 90  # Increased retention period to 90 days 
