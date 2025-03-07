@@ -23,37 +23,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up directories
-      run: |
-        mkdir -p database backups logs
-        touch database/routes.db  # Ensure database file exists
-    
-    - name: Download previous database
-      id: download-artifact
-      continue-on-error: true  # Continue if no previous artifact exists
-      uses: actions/download-artifact@v4
-      with:
-        name: route-data
-        path: previous-data
-        
-    - name: Restore or initialize database
-      run: |
-        if [ -f "previous-data/database/routes.db" ]; then
-          cp previous-data/database/routes.db database/routes.db
-          echo "Restored previous database"
-          # Verify database is valid
-          if sqlite3 database/routes.db ".tables" &> /dev/null; then
-            echo "Database verification successful"
-          else
-            echo "Database corrupt or invalid, will create new one"
-            rm database/routes.db
-            touch database/routes.db
-          fi
-        else
-          echo "No previous database found, will create new one"
-          touch database/routes.db
-        fi
-    
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -64,20 +33,75 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Initialize database schema
+    - name: Set up fresh database
       run: |
+        mkdir -p database backups logs
+        # Always start with a fresh database
         python -c "
         from src.database.models import Base, engine
-        Base.metadata.create_all(engine)
-        print('Database schema initialized successfully')
+        import os
         
-        # Verify table exists and print current record count
+        # Remove existing database if it exists
+        if os.path.exists('database/routes.db'):
+            os.remove('database/routes.db')
+        
+        # Create new database with schema
+        Base.metadata.create_all(engine)
+        print('Fresh database created with schema')
+        "
+        
+    - name: Try to restore previous data
+      run: |
+        # Download previous artifact (if it exists)
+        python -c "
         import sqlite3
-        conn = sqlite3.connect('database/routes.db')
-        cursor = conn.cursor()
-        count = cursor.execute('SELECT COUNT(*) FROM route_info').fetchone()[0]
-        print(f'Current record count: {count}')
-        conn.close()
+        import shutil
+        import os
+        
+        def merge_databases():
+            try:
+                # Connect to the new (empty) database
+                main_conn = sqlite3.connect('database/routes.db')
+                main_cursor = main_conn.cursor()
+                
+                # Try to copy data from previous database
+                if os.path.exists('previous-data/database/routes.db'):
+                    prev_conn = sqlite3.connect('previous-data/database/routes.db')
+                    prev_cursor = prev_conn.cursor()
+                    
+                    # Get all records from previous database
+                    prev_cursor.execute('SELECT * FROM route_info')
+                    records = prev_cursor.fetchall()
+                    
+                    if records:
+                        # Get column names
+                        prev_cursor.execute('PRAGMA table_info(route_info)')
+                        columns = [col[1] for col in prev_cursor.fetchall()]
+                        
+                        # Prepare insert statement
+                        placeholders = ','.join(['?' for _ in columns])
+                        insert_sql = f'INSERT INTO route_info VALUES ({placeholders})'
+                        
+                        # Insert all records
+                        main_cursor.executemany(insert_sql, records)
+                        main_conn.commit()
+                        print(f'Restored {len(records)} records from previous database')
+                    
+                    prev_conn.close()
+                else:
+                    print('No previous database found to restore')
+                
+                # Verify current record count
+                count = main_cursor.execute('SELECT COUNT(*) FROM route_info').fetchone()[0]
+                print(f'Current database has {count} records')
+                
+                main_conn.close()
+                
+            except Exception as e:
+                print(f'Error during database merge: {str(e)}')
+                print('Continuing with fresh database')
+        
+        merge_databases()
         "
         
     - name: Run traffic data collection
@@ -169,8 +193,14 @@ jobs:
         "
         echo "Completed data collection at $(date)"
         
+    - name: Download previous artifact
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        name: route-data
+        path: previous-data
+        
     - name: Upload database
-      if: always()  # Try to upload even if previous step failed
       uses: actions/upload-artifact@v4
       with:
         name: route-data
